@@ -519,6 +519,89 @@ def generate_recommended_questions(vectorstore, api_key):
         print(error_msg)
         return []
 
+# 추가 질문 생성 함수
+def generate_additional_questions(vectorstore, api_key, existing_questions):
+    """기존 질문들과 중복되지 않는 추가 핵심 질문들을 생성합니다."""
+    try:
+        # LLM 설정
+        llm = ChatOpenAI(
+            openai_api_key=api_key,
+            model_name="gpt-4o-mini",
+            temperature=0.2  # 다양성을 위해 temperature 약간 증가
+        )
+        
+        # 기존 질문들을 텍스트로 변환
+        existing_questions_text = "\n".join([f"- {q}" for q in existing_questions])
+        
+        # 추가 질문 생성용 프롬프트
+        additional_questions_prompt = """
+        제공된 문서를 바탕으로 추가적인 핵심 질문들을 5-6개 생성해주세요.
+        아래 기존 질문들과 중복되지 않도록 다른 관점이나 세부사항에 대한 질문을 만들어주세요.
+        
+        **기존 질문들 (중복 금지):**
+        {existing_questions}
+        
+        **새로운 질문 생성 조건:**
+        - 기존 질문들과 완전히 다른 내용이어야 함
+        - 문서의 다른 측면이나 세부사항에 초점
+        - 구체적이고 실용적인 질문
+        - 문서 내용을 깊이 이해할 수 있는 질문
+        
+        각 질문은 한 줄씩 다음 형식으로 작성해주세요:
+        - 질문 내용
+        
+        문서 내용:
+        {context}
+        """
+        
+        ADDITIONAL_QUESTIONS_PROMPT = PromptTemplate(
+            template=additional_questions_prompt,
+            input_variables=["existing_questions", "context"]
+        )
+        
+        # 문서 검색 (다른 관점으로)
+        retriever = vectorstore.as_retriever(search_kwargs={"k": 8})
+        docs = retriever.get_relevant_documents("문서의 세부사항과 추가 정보")
+        
+        # 문서 내용 결합
+        context = "\n\n".join([doc.page_content for doc in docs])
+        
+        # 추가 질문 생성
+        formatted_prompt = ADDITIONAL_QUESTIONS_PROMPT.format(
+            existing_questions=existing_questions_text,
+            context=context
+        )
+        response = llm.invoke(formatted_prompt)
+        
+        # 질문들을 리스트로 파싱
+        questions_text = response.content
+        new_questions = []
+        
+        for line in questions_text.split('\n'):
+            line = line.strip()
+            if line.startswith('-') and len(line) > 3:
+                question = line[1:].strip()
+                if question and '?' in question:
+                    # 기존 질문과 중복 체크 (간단한 키워드 비교)
+                    is_duplicate = False
+                    for existing_q in existing_questions:
+                        # 질문의 핵심 키워드가 70% 이상 겹치면 중복으로 판단
+                        existing_words = set(existing_q.lower().split())
+                        new_words = set(question.lower().split())
+                        if len(existing_words & new_words) / max(len(existing_words), len(new_words)) > 0.7:
+                            is_duplicate = True
+                            break
+                    
+                    if not is_duplicate:
+                        new_questions.append(question)
+        
+        return new_questions[:6]  # 최대 6개 추가 질문 반환
+        
+    except Exception as e:
+        error_msg = f"추가 질문 생성 중 오류 발생: {str(e)}"
+        print(error_msg)
+        return []
+
 # 세션 상태 초기화
 if 'messages' not in st.session_state:
     st.session_state.messages = []
@@ -657,6 +740,36 @@ else:
                             
                             # 페이지 새로고침으로 채팅 인터페이스 업데이트
                             st.rerun()
+            
+            # 더 많은 질문 생성 버튼 추가
+            st.markdown("---")
+            col1, col2, col3 = st.columns([1, 2, 1])
+            with col2:
+                if st.button(
+                    "🔄 더 많은 질문 생성하기",
+                    key="generate_more_questions",
+                    help="추가적인 핵심 질문들을 생성합니다",
+                    use_container_width=True,
+                    type="secondary"
+                ):
+                    if st.session_state.vectorstore and openai_api_key:
+                        with st.spinner("🤔 추가 핵심 질문들을 생성하고 있습니다..."):
+                            # 기존 질문들과 중복되지 않는 새로운 질문들 생성
+                            new_questions = generate_additional_questions(
+                                st.session_state.vectorstore, 
+                                openai_api_key, 
+                                st.session_state.recommended_questions
+                            )
+                            
+                            if new_questions:
+                                # 새로운 질문들을 기존 질문들에 추가
+                                st.session_state.recommended_questions.extend(new_questions)
+                                st.success(f"✅ {len(new_questions)}개의 새로운 질문이 추가되었습니다!")
+                                st.rerun()  # 페이지 새로고침으로 새 질문들 표시
+                            else:
+                                st.warning("⚠️ 추가 질문 생성에 실패했습니다. 다시 시도해주세요.")
+                    else:
+                        st.error("❌ 문서가 분석되지 않았거나 API 키가 설정되지 않았습니다.")
         
         st.markdown("---")
         st.markdown("### 💬 직접 질문하기")

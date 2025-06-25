@@ -25,6 +25,7 @@ from langchain_openai import OpenAIEmbeddings
 from langchain_community.vectorstores import Chroma
 from langchain_openai import ChatOpenAI
 from langchain.chains import RetrievalQA
+from langchain.chains.summarize import load_summarize_chain
 from langchain.prompts import PromptTemplate
 from langchain.callbacks.base import BaseCallbackHandler
 from langchain.schema import LLMResult
@@ -36,6 +37,8 @@ import shutil
 import glob
 import gc
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import asyncio
 
 # from streamlit_extras.buy_me_a_coffee import button
 
@@ -132,6 +135,22 @@ with st.sidebar:
         st.info("📝 .env 파일 예시:\nOPENAI_API_KEY=your_api_key_here")
     else:
         st.success("✅ OpenAI API 키가 설정되었습니다.")
+    
+    # 요약 모드 선택 추가
+    st.divider()
+    st.subheader("🚀 요약 모드")
+    summary_mode = st.radio(
+        "요약 속도 선택:",
+        options=["빠른 모드 ⚡", "정확 모드 🎯"],
+        index=0,  # 기본값: 빠른 모드
+        help="빠른 모드: 2-3배 빠른 속도, 간결한 요약\n정확 모드: 더 상세하고 정확한 요약"
+    )
+    
+    # 선택된 모드를 세션 상태에 저장
+    if 'summary_fast_mode' not in st.session_state:
+        st.session_state.summary_fast_mode = True
+    
+    st.session_state.summary_fast_mode = "빠른 모드" in summary_mode
     
     if uploaded_file:
         st.success(f"✅ 파일 업로드됨: {uploaded_file.name}")
@@ -287,7 +306,7 @@ if 'app_initialized' not in st.session_state:
 # RAG 시스템 초기화 (크로스 플랫폼 개선 버전)
 @st.cache_resource
 def initialize_rag_system(file_path):
-    """RAG 시스템을 초기화합니다."""
+    """RAG 시스템을 초기화하고 vectorstore와 분할된 문서들을 반환합니다."""
     try:
         print(f"RAG 시스템 초기화 시작: {file_path}")
         
@@ -331,13 +350,14 @@ def initialize_rag_system(file_path):
         )
         
         print("RAG 시스템 초기화 완료")
-        return vectorstore
+        # vectorstore와 분할된 문서들을 함께 반환
+        return vectorstore, splits
         
     except Exception as e:
         error_msg = f"RAG 시스템 초기화 중 오류 발생: {str(e)}"
         print(error_msg)
         st.error(error_msg)
-        return None
+        return None, None
 
 # 업로드된 파일을 임시 파일로 저장 (크로스 플랫폼)
 def save_uploaded_file(uploaded_file):
@@ -409,9 +429,376 @@ def get_rag_response_streaming(question, vectorstore, api_key, container):
         container.error(error_msg)
         return error_msg
 
-# 문서 요약 함수 추가
+# 문서 요약 함수 추가 (속도 최적화 버전)
+def generate_document_summary_improved(documents, api_key, fast_mode=True):
+    """전체 문서의 포괄적인 요약을 생성합니다 (청크 수에 따라 적응적 방식 사용)."""
+    try:
+        # LLM 설정 (빠른 모드 시 더 빠른 설정)
+        llm = ChatOpenAI(
+            openai_api_key=api_key,
+            model_name="gpt-4o-mini",
+            temperature=0.1 if not fast_mode else 0.2,  # 빠른 모드에서는 약간 높게
+            timeout=60,
+            max_retries=1 if fast_mode else 2  # 빠른 모드에서는 재시도 줄이기
+        )
+        
+        print(f"문서 요약 시작: {len(documents)}개 청크 ({'빠른 모드' if fast_mode else '정확 모드'})")
+        
+        # 빠른 모드 시 더 공격적인 청크 수 기준
+        if fast_mode:
+            small_threshold = 8
+            medium_threshold = 20
+        else:
+            small_threshold = 10
+            medium_threshold = 30
+        
+        # 청크 수에 따라 다른 전략 사용
+        if len(documents) <= small_threshold:
+            # 작은 문서: stuff 방식으로 한 번에 처리
+            print("작은 문서 감지 - Stuff 방식 사용")
+            return _generate_summary_stuff_method(documents, llm, fast_mode)
+        elif len(documents) <= medium_threshold:
+            # 중간 크기 문서: 병렬 그룹화 방식
+            print("중간 크기 문서 감지 - 병렬 그룹화 방식 사용") 
+            return _generate_summary_parallel_grouped_method(documents, llm, fast_mode)
+        else:
+            # 큰 문서: 스마트 샘플링 후 요약
+            print("큰 문서 감지 - 스마트 샘플링 방식 사용")
+            return _generate_summary_smart_sampling_method(documents, llm, fast_mode)
+            
+    except Exception as e:
+        error_msg = f"문서 요약 생성 중 오류 발생: {str(e)}"
+        print(error_msg)
+        # 오류 발생 시 기본 방식으로 폴백
+        print("기본 요약 방식으로 폴백...")
+        return _generate_simple_summary(documents, llm)
+
+def _generate_summary_stuff_method(documents, llm, fast_mode=True):
+    """작은 문서를 위한 Stuff 방식 요약 (속도 최적화)"""
+    try:
+        # 빠른 모드 시 더 간단한 프롬프트
+        if fast_mode:
+            stuff_prompt = """다음 문서를 간결하게 요약해주세요:
+
+{text}
+
+**📄 문서 유형:** 
+**📝 핵심 내용:** 
+**⚠️ 중요 정보:** 
+
+요약:"""
+        else:
+            stuff_prompt = """
+            다음 문서 전체를 종합적으로 요약해주세요:
+
+            {text}
+
+            다음 형식으로 요약해주세요:
+
+            **📄 문서 정보**
+            - 문서 유형과 주제
+
+            **📝 핵심 내용**
+            - 문서의 주요 내용 요약 (4-5개)
+
+            **⚠️ 주요 포인트**
+            - 날짜, 금액, 조건 등 중요 정보
+
+            **💡 특이사항**
+            - 주목할 만한 내용 (있는 경우만)
+
+            종합 요약:
+            """
+        
+        prompt = PromptTemplate(template=stuff_prompt, input_variables=["text"])
+        
+        # Stuff 체인 생성
+        chain = load_summarize_chain(
+            llm=llm, 
+            chain_type="stuff", 
+            prompt=prompt
+        )
+        
+        result = chain.invoke({"input_documents": documents})
+        return result["output_text"]
+        
+    except Exception as e:
+        print(f"Stuff 방식 실패: {str(e)}")
+        raise e
+
+def _generate_summary_parallel_grouped_method(documents, llm, fast_mode=True):
+    """중간 크기 문서를 위한 병렬 그룹화 방식 (속도 최적화)"""
+    try:
+        # 빠른 모드 시 더 큰 그룹 크기 사용
+        group_size = 6 if fast_mode else 4
+        groups = [documents[i:i + group_size] for i in range(0, len(documents), group_size)]
+        
+        print(f"{len(groups)}개 그룹을 병렬로 처리 중...")
+        
+        def process_group(group_data):
+            group_idx, group = group_data
+            try:
+                print(f"그룹 {group_idx+1} 처리 중...")
+                
+                # 그룹 내 텍스트 결합
+                combined_text = "\n\n".join([doc.page_content for doc in group])
+                
+                # 빠른 모드용 간단한 프롬프트
+                if fast_mode:
+                    prompt = f"다음 문서 부분의 핵심만 요약: {combined_text[:2000]}..." if len(combined_text) > 2000 else f"다음 문서 부분의 핵심만 요약: {combined_text}"
+                else:
+                    prompt = f"""
+                    다음 문서 부분의 핵심 내용을 요약해주세요:
+                    
+                    {combined_text}
+                    
+                    핵심 요약:
+                    """
+                
+                summary = llm.invoke(prompt).content
+                return group_idx, summary
+                
+            except Exception as e:
+                print(f"그룹 {group_idx+1} 처리 실패: {str(e)}")
+                return group_idx, f"그룹 {group_idx+1} 요약 실패"
+        
+        # 병렬 처리로 속도 향상
+        group_summaries = [None] * len(groups)
+        
+        # ThreadPoolExecutor로 병렬 처리
+        max_workers = min(4, len(groups))  # 최대 4개 스레드
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # 각 그룹을 병렬로 처리
+            future_to_group = {
+                executor.submit(process_group, (i, group)): i 
+                for i, group in enumerate(groups)
+            }
+            
+            # 완료된 것부터 결과 처리
+            for future in as_completed(future_to_group):
+                try:
+                    group_idx, summary = future.result()
+                    group_summaries[group_idx] = summary
+                except Exception as e:
+                    group_idx = future_to_group[future]
+                    print(f"그룹 {group_idx+1} 병렬 처리 실패: {str(e)}")
+                    group_summaries[group_idx] = f"그룹 {group_idx+1} 처리 실패"
+        
+        # None 값 제거 (실패한 그룹)
+        valid_summaries = [s for s in group_summaries if s and "실패" not in s]
+        
+        # 그룹 요약들을 종합
+        print("그룹 요약들을 종합하는 중...")
+        
+        if fast_mode:
+            # 빠른 모드: 간단한 종합
+            final_prompt = f"""다음 요약들을 하나로 합쳐주세요:
+
+{chr(10).join(valid_summaries)}
+
+**📄 문서 유형:** 
+**📝 주요 내용:** 
+**⚠️ 중요 정보:** 
+
+종합 요약:"""
+        else:
+            # 정확 모드: 상세한 종합
+            final_prompt = f"""
+            다음은 문서의 각 부분별 요약들입니다. 이를 종합해서 완전한 문서 요약을 작성해주세요:
+
+            {chr(10).join([f"부분 {i+1}: {summary}" for i, summary in enumerate(valid_summaries)])}
+
+            다음 형식으로 종합 요약을 작성해주세요:
+
+            **📄 문서 정보**
+            - 문서 유형과 주제
+
+            **📝 핵심 내용**
+            - 문서의 주요 내용 요약
+
+            **⚠️ 주요 포인트**
+            - 날짜, 금액, 조건 등 중요 정보
+
+            **💡 특이사항**
+            - 주목할 만한 내용
+
+            종합 요약:
+            """
+        
+        final_summary = llm.invoke(final_prompt).content
+        return final_summary
+        
+    except Exception as e:
+        print(f"병렬 그룹화 방식 실패: {str(e)}")
+        raise e
+
+def _generate_summary_grouped_method(documents, llm):
+    """중간 크기 문서를 위한 그룹화 방식"""
+    try:
+        # 청크를 3-4개씩 그룹으로 나누어 처리
+        group_size = 4
+        groups = [documents[i:i + group_size] for i in range(0, len(documents), group_size)]
+        
+        print(f"{len(groups)}개 그룹으로 나누어 처리...")
+        
+        # 각 그룹별 요약 생성
+        group_summaries = []
+        for i, group in enumerate(groups):
+            print(f"그룹 {i+1}/{len(groups)} 처리 중...")
+            
+            # 그룹 내 텍스트 결합
+            combined_text = "\n\n".join([doc.page_content for doc in group])
+            
+            # 간단한 요약 생성
+            simple_prompt = f"""
+            다음 문서 부분의 핵심 내용을 요약해주세요:
+            
+            {combined_text}
+            
+            핵심 요약:
+            """
+            
+            summary = llm.invoke(simple_prompt).content
+            group_summaries.append(summary)
+        
+        # 그룹 요약들을 종합
+        print("그룹 요약들을 종합하는 중...")
+        final_prompt = f"""
+        다음은 문서의 각 부분별 요약들입니다. 이를 종합해서 완전한 문서 요약을 작성해주세요:
+
+        {chr(10).join([f"부분 {i+1}: {summary}" for i, summary in enumerate(group_summaries)])}
+
+        다음 형식으로 종합 요약을 작성해주세요:
+
+        **📄 문서 정보**
+        - 문서 유형과 주제
+
+        **📝 핵심 내용**
+        - 문서의 주요 내용 요약
+
+        **⚠️ 주요 포인트**
+        - 날짜, 금액, 조건 등 중요 정보
+
+        **💡 특이사항**
+        - 주목할 만한 내용
+
+        종합 요약:
+        """
+        
+        final_summary = llm.invoke(final_prompt).content
+        return final_summary
+        
+    except Exception as e:
+        print(f"그룹화 방식 실패: {str(e)}")
+        raise e
+
+def _generate_summary_smart_sampling_method(documents, llm, fast_mode=True):
+    """큰 문서를 위한 스마트 샘플링 방식 (속도 최적화)"""
+    try:
+        # 빠른 모드에서는 더 공격적으로 샘플링
+        total_docs = len(documents)
+        sample_size = min(12 if fast_mode else 20, total_docs)
+        
+        # 스마트 샘플 선택 전략
+        selected_docs = []
+        
+        # 문서 길이 기반 중요도 점수 계산
+        doc_scores = []
+        for i, doc in enumerate(documents):
+            # 위치 점수 (앞, 뒤가 중요)
+            position_score = 1.0 if i < 3 or i >= total_docs - 3 else 0.5
+            
+            # 내용 길이 점수 (너무 짧지도 길지도 않은 것)
+            length_score = min(len(doc.page_content) / 1000, 1.0)
+            
+            # 키워드 점수 (중요한 키워드 포함 시 가점)
+            important_keywords = ['계약', '조건', '날짜', '금액', '의무', '권리', '조항', '법률', '규정']
+            keyword_score = sum(1 for keyword in important_keywords if keyword in doc.page_content) / len(important_keywords)
+            
+            total_score = position_score + length_score + keyword_score
+            doc_scores.append((i, doc, total_score))
+        
+        # 점수 순으로 정렬하여 상위 문서들 선택
+        doc_scores.sort(key=lambda x: x[2], reverse=True)
+        selected_docs = [doc for _, doc, _ in doc_scores[:sample_size]]
+        
+        print(f"전체 {total_docs}개 청크 중 상위 {len(selected_docs)}개 스마트 선별하여 요약...")
+        
+        # 선별된 문서들로 병렬 처리 적용
+        return _generate_summary_parallel_grouped_method(selected_docs, llm, fast_mode)
+        
+    except Exception as e:
+        print(f"스마트 샘플링 방식 실패: {str(e)}")
+        raise e
+
+def _generate_summary_sampling_method(documents, llm):
+    """큰 문서를 위한 샘플링 방식 (기존 방식 - 호환성 유지)"""
+    try:
+        # 문서에서 중요한 청크들만 샘플링 (앞, 중간, 뒤 + 랜덤)
+        total_docs = len(documents)
+        sample_size = min(20, total_docs)  # 최대 20개 청크만 사용
+        
+        # 샘플 선택 전략
+        selected_docs = []
+        
+        # 앞부분 (문서 시작)
+        selected_docs.extend(documents[:3])
+        
+        # 중간부분
+        mid_start = total_docs // 3
+        mid_end = mid_start + 3
+        selected_docs.extend(documents[mid_start:mid_end])
+        
+        # 뒷부분 (문서 끝)
+        selected_docs.extend(documents[-3:])
+        
+        # 나머지는 균등하게 샘플링
+        remaining_count = sample_size - len(selected_docs)
+        if remaining_count > 0:
+            import random
+            remaining_docs = [doc for doc in documents if doc not in selected_docs]
+            if remaining_docs:
+                sampled = random.sample(remaining_docs, min(remaining_count, len(remaining_docs)))
+                selected_docs.extend(sampled)
+        
+        print(f"전체 {total_docs}개 청크 중 {len(selected_docs)}개 선별하여 요약...")
+        
+        # 선별된 문서들로 그룹화 방식 적용
+        return _generate_summary_grouped_method(selected_docs, llm)
+        
+    except Exception as e:
+        print(f"샘플링 방식 실패: {str(e)}")
+        raise e
+
+def _generate_simple_summary(documents, llm):
+    """최후의 폴백 - 가장 간단한 방식"""
+    try:
+        # 첫 10개 청크만 사용해서 간단 요약
+        sample_docs = documents[:10]
+        combined_text = "\n\n".join([doc.page_content for doc in sample_docs])
+        
+        simple_prompt = f"""
+        다음 문서의 핵심 내용을 간단히 요약해주세요:
+
+        {combined_text}
+
+        **📄 문서 요약:**
+        - 문서 유형:
+        - 주요 내용:
+        - 중요 정보:
+
+        요약:
+        """
+        
+        result = llm.invoke(simple_prompt)
+        return result.content
+        
+    except Exception as e:
+        return f"❌ 문서 요약 생성에 실패했습니다: {str(e)}"
+
+# 기존 함수도 유지 (호환성을 위해)
 def generate_document_summary(vectorstore, api_key):
-    """업로드된 문서의 종합적인 요약을 생성합니다."""
+    """업로드된 문서의 종합적인 요약을 생성합니다. (기존 방식)"""
     try:
         # LLM 설정 (요약용)
         llm = ChatOpenAI(
@@ -609,6 +996,9 @@ if 'messages' not in st.session_state:
 if 'vectorstore' not in st.session_state:
     st.session_state.vectorstore = None
 
+if 'document_splits' not in st.session_state:
+    st.session_state.document_splits = None
+
 if 'current_file' not in st.session_state:
     st.session_state.current_file = None
 
@@ -624,6 +1014,7 @@ if uploaded_file:
     if st.session_state.current_file != uploaded_file.name:
         st.session_state.current_file = uploaded_file.name
         st.session_state.vectorstore = None  # 기존 벡터 스토어 초기화
+        st.session_state.document_splits = None  # 기존 문서 분할 초기화
         st.session_state.messages = []  # 대화 히스토리 초기화
         st.session_state.document_summary = None  # 문서 요약 초기화
         st.session_state.recommended_questions = []  # 추천 질문 초기화
@@ -632,7 +1023,10 @@ if uploaded_file:
         with st.spinner("📄 PDF 문서를 분석하고 임베딩하고 있습니다... 잠시만 기다려주세요!"):
             temp_file_path = save_uploaded_file(uploaded_file)
             if temp_file_path:
-                st.session_state.vectorstore = initialize_rag_system(temp_file_path)
+                # vectorstore와 문서 분할 정보를 함께 받음
+                vectorstore, document_splits = initialize_rag_system(temp_file_path)
+                st.session_state.vectorstore = vectorstore
+                st.session_state.document_splits = document_splits
                 
                 # 임시 파일 정리 (크로스 플랫폼)
                 try:
@@ -641,20 +1035,30 @@ if uploaded_file:
                 except Exception as e:
                     print(f"임시 파일 정리 실패: {str(e)}")
                 
-                if st.session_state.vectorstore:
+                if st.session_state.vectorstore and st.session_state.document_splits:
                     st.success("✅ 문서가 성공적으로 분석되었습니다!")
                     
                     # 문서 요약 및 추천 질문 자동 생성
                     if openai_api_key:
-                        with st.spinner("📝 문서 요약을 생성하고 있습니다..."):
-                            summary = generate_document_summary(st.session_state.vectorstore, openai_api_key)
+                        # 선택된 모드에 따른 스피너 메시지
+                        fast_mode = st.session_state.get('summary_fast_mode', True)
+                        spinner_msg = f"📝 {'빠른' if fast_mode else '정확'} 모드로 문서 요약을 생성하고 있습니다..."
+                        
+                        with st.spinner(spinner_msg):
+                            # 선택된 모드로 요약 생성
+                            summary = generate_document_summary_improved(
+                                st.session_state.document_splits, 
+                                openai_api_key,
+                                fast_mode=fast_mode
+                            )
                             st.session_state.document_summary = summary
                             
                         with st.spinner("🤔 핵심 질문들을 생성하고 있습니다..."):
                             questions = generate_recommended_questions(st.session_state.vectorstore, openai_api_key)
                             st.session_state.recommended_questions = questions
                             
-                        st.success("✅ 문서 요약과 핵심 질문들이 완성되었습니다!")
+                        mode_text = "빠른" if fast_mode else "정확"
+                        st.success(f"✅ {mode_text} 모드로 문서 요약과 핵심 질문들이 완성되었습니다!")
                     else:
                         st.warning("⚠️ API 키가 없어 문서 요약을 생성할 수 없습니다.")
                 else:
@@ -673,6 +1077,7 @@ else:
         # 세션 상태 초기화
         st.session_state.current_file = None
         st.session_state.vectorstore = None
+        st.session_state.document_splits = None
         st.session_state.messages = []
         st.session_state.document_summary = None
         st.session_state.recommended_questions = []

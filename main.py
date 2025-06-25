@@ -409,6 +409,62 @@ def get_rag_response_streaming(question, vectorstore, api_key, container):
         container.error(error_msg)
         return error_msg
 
+# 문서 요약 함수 추가
+def generate_document_summary(vectorstore, api_key):
+    """업로드된 문서의 종합적인 요약을 생성합니다."""
+    try:
+        # LLM 설정 (요약용)
+        llm = ChatOpenAI(
+            openai_api_key=api_key,
+            model_name="gpt-4o-mini",
+            temperature=0.1
+        )
+        
+        # 문서 요약용 프롬프트 템플릿
+        summary_prompt = """
+        제공된 문서를 다음과 같이 간단히 요약해주세요:
+
+        **📄 문서 정보**
+        - 문서 유형과 주제
+
+        **📝 핵심 내용**
+        - 중요한 내용 3-4개 요약
+
+        **⚠️ 주요 포인트**
+        - 날짜, 금액, 조건 등 중요 정보
+
+        **💬 추천 질문**
+        - 이 문서에 대해 물어볼 만한 질문 3개
+
+        문서 내용:
+        {context}
+        """
+        
+        SUMMARY_PROMPT = PromptTemplate(
+            template=summary_prompt,
+            input_variables=["context"]
+        )
+        
+        # 문서 검색 및 요약
+        retriever = vectorstore.as_retriever(search_kwargs={"k": 8})  # 더 많은 컨텍스트 수집
+        
+        # 관련 문서들 검색
+        docs = retriever.get_relevant_documents("문서 전체 내용 요약")
+        
+        # 문서 내용 결합
+        context = "\n\n".join([doc.page_content for doc in docs])
+        
+        # 요약 생성
+        formatted_prompt = SUMMARY_PROMPT.format(context=context)
+        response = llm.invoke(formatted_prompt)
+        
+        return response.content
+        
+    except Exception as e:
+        error_msg = f"문서 요약 생성 중 오류 발생: {str(e)}"
+        print(error_msg)
+        return f"❌ 문서 요약 생성에 실패했습니다: {str(e)}"
+
 # 세션 상태 초기화
 if 'messages' not in st.session_state:
     st.session_state.messages = []
@@ -419,6 +475,9 @@ if 'vectorstore' not in st.session_state:
 if 'current_file' not in st.session_state:
     st.session_state.current_file = None
 
+if 'document_summary' not in st.session_state:
+    st.session_state.document_summary = None
+
 # 파일 업로드 처리
 if uploaded_file:
     # 새 파일이 업로드되었는지 확인
@@ -426,6 +485,7 @@ if uploaded_file:
         st.session_state.current_file = uploaded_file.name
         st.session_state.vectorstore = None  # 기존 벡터 스토어 초기화
         st.session_state.messages = []  # 대화 히스토리 초기화
+        st.session_state.document_summary = None  # 문서 요약 초기화
         
         # 파일 저장 및 RAG 시스템 초기화
         with st.spinner("📄 PDF 문서를 분석하고 임베딩하고 있습니다... 잠시만 기다려주세요!"):
@@ -442,6 +502,15 @@ if uploaded_file:
                 
                 if st.session_state.vectorstore:
                     st.success("✅ 문서가 성공적으로 분석되었습니다!")
+                    
+                    # 문서 요약 자동 생성
+                    if openai_api_key:
+                        with st.spinner("📝 문서 요약을 생성하고 있습니다..."):
+                            summary = generate_document_summary(st.session_state.vectorstore, openai_api_key)
+                            st.session_state.document_summary = summary
+                            st.success("✅ 문서 요약이 완성되었습니다!")
+                    else:
+                        st.warning("⚠️ API 키가 없어 문서 요약을 생성할 수 없습니다.")
                 else:
                     st.error("❌ 문서 분석에 실패했습니다.")
 else:
@@ -459,6 +528,7 @@ else:
         st.session_state.current_file = None
         st.session_state.vectorstore = None
         st.session_state.messages = []
+        st.session_state.document_summary = None
 
 # 파일이 업로드되지 않았을 때 안내
 if not uploaded_file:
@@ -474,6 +544,19 @@ if not uploaded_file:
     - 텍스트가 포함된 PDF 파일이어야 합니다
     """)
 else:
+    # 문서 요약 표시 (파일이 업로드되고 요약이 있을 때)
+    if st.session_state.document_summary:
+        st.markdown("---")
+        st.markdown("## 📄 문서 요약")
+        
+        # 요약을 예쁘게 표시
+        with st.container():
+            st.markdown(st.session_state.document_summary)
+        
+        st.markdown("---")
+        st.markdown("### 💬 질문하기")
+        st.info("📝 위 요약을 참고하여 문서에 대해 자세히 질문해보세요!")
+    
     # 기존 메시지 표시
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):

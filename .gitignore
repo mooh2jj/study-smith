@@ -1,0 +1,17 @@
+# chroma
+chroma_db
+
+# env
+.env
+
+# python venv
+etc/
+Include/
+Lib/
+Scripts/
+share/
+pyvenv.cfg
+
+
+# chroma
+chroma_db

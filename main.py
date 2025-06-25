@@ -433,9 +433,6 @@ def generate_document_summary(vectorstore, api_key):
         **⚠️ 주요 포인트**
         - 날짜, 금액, 조건 등 중요 정보
 
-        **💬 추천 질문**
-        - 이 문서에 대해 물어볼 만한 질문 3개
-
         문서 내용:
         {context}
         """
@@ -465,6 +462,63 @@ def generate_document_summary(vectorstore, api_key):
         print(error_msg)
         return f"❌ 문서 요약 생성에 실패했습니다: {str(e)}"
 
+# 추천 질문 생성 함수 추가
+def generate_recommended_questions(vectorstore, api_key):
+    """문서 이해를 위한 핵심 질문들을 생성합니다."""
+    try:
+        # LLM 설정
+        llm = ChatOpenAI(
+            openai_api_key=api_key,
+            model_name="gpt-4o-mini",
+            temperature=0.1
+        )
+        
+        # 추천 질문 생성용 프롬프트
+        questions_prompt = """
+        제공된 문서를 바탕으로 이 문서를 이해하는 데 도움이 될 수 있는 핵심 질문들을 5-7개 생성해주세요.
+        질문은 구체적이고 실용적이어야 하며, 문서의 중요한 내용을 다뤄야 합니다.
+        
+        각 질문은 한 줄씩 다음 형식으로 작성해주세요:
+        - 질문 내용
+        
+        문서 내용:
+        {context}
+        """
+        
+        QUESTIONS_PROMPT = PromptTemplate(
+            template=questions_prompt,
+            input_variables=["context"]
+        )
+        
+        # 문서 검색
+        retriever = vectorstore.as_retriever(search_kwargs={"k": 6})
+        docs = retriever.get_relevant_documents("문서의 핵심 내용과 중요한 정보")
+        
+        # 문서 내용 결합
+        context = "\n\n".join([doc.page_content for doc in docs])
+        
+        # 질문 생성
+        formatted_prompt = QUESTIONS_PROMPT.format(context=context)
+        response = llm.invoke(formatted_prompt)
+        
+        # 질문들을 리스트로 파싱
+        questions_text = response.content
+        questions = []
+        
+        for line in questions_text.split('\n'):
+            line = line.strip()
+            if line.startswith('-') and len(line) > 3:
+                question = line[1:].strip()
+                if question and '?' in question:
+                    questions.append(question)
+        
+        return questions[:7]  # 최대 7개 질문만 반환
+        
+    except Exception as e:
+        error_msg = f"추천 질문 생성 중 오류 발생: {str(e)}"
+        print(error_msg)
+        return []
+
 # 세션 상태 초기화
 if 'messages' not in st.session_state:
     st.session_state.messages = []
@@ -478,6 +532,9 @@ if 'current_file' not in st.session_state:
 if 'document_summary' not in st.session_state:
     st.session_state.document_summary = None
 
+if 'recommended_questions' not in st.session_state:
+    st.session_state.recommended_questions = []
+
 # 파일 업로드 처리
 if uploaded_file:
     # 새 파일이 업로드되었는지 확인
@@ -486,6 +543,7 @@ if uploaded_file:
         st.session_state.vectorstore = None  # 기존 벡터 스토어 초기화
         st.session_state.messages = []  # 대화 히스토리 초기화
         st.session_state.document_summary = None  # 문서 요약 초기화
+        st.session_state.recommended_questions = []  # 추천 질문 초기화
         
         # 파일 저장 및 RAG 시스템 초기화
         with st.spinner("📄 PDF 문서를 분석하고 임베딩하고 있습니다... 잠시만 기다려주세요!"):
@@ -503,12 +561,17 @@ if uploaded_file:
                 if st.session_state.vectorstore:
                     st.success("✅ 문서가 성공적으로 분석되었습니다!")
                     
-                    # 문서 요약 자동 생성
+                    # 문서 요약 및 추천 질문 자동 생성
                     if openai_api_key:
                         with st.spinner("📝 문서 요약을 생성하고 있습니다..."):
                             summary = generate_document_summary(st.session_state.vectorstore, openai_api_key)
                             st.session_state.document_summary = summary
-                            st.success("✅ 문서 요약이 완성되었습니다!")
+                            
+                        with st.spinner("🤔 핵심 질문들을 생성하고 있습니다..."):
+                            questions = generate_recommended_questions(st.session_state.vectorstore, openai_api_key)
+                            st.session_state.recommended_questions = questions
+                            
+                        st.success("✅ 문서 요약과 핵심 질문들이 완성되었습니다!")
                     else:
                         st.warning("⚠️ API 키가 없어 문서 요약을 생성할 수 없습니다.")
                 else:
@@ -529,6 +592,7 @@ else:
         st.session_state.vectorstore = None
         st.session_state.messages = []
         st.session_state.document_summary = None
+        st.session_state.recommended_questions = []
 
 # 파일이 업로드되지 않았을 때 안내
 if not uploaded_file:
@@ -553,9 +617,50 @@ else:
         with st.container():
             st.markdown(st.session_state.document_summary)
         
+        # 추천 질문 버튼들 표시
+        if st.session_state.recommended_questions:
+            st.markdown("---")
+            st.markdown("## 🤔 핵심 질문들")
+            st.info("💡 아래 질문들을 클릭하면 바로 답변을 받을 수 있습니다!")
+            
+            # 질문 버튼들을 2열로 배치
+            cols = st.columns(2)
+            for idx, question in enumerate(st.session_state.recommended_questions):
+                col_idx = idx % 2
+                with cols[col_idx]:
+                    # 질문을 버튼으로 표시 (키 값에 인덱스 추가로 중복 방지)
+                    if st.button(
+                        question, 
+                        key=f"question_btn_{idx}",
+                        help="클릭하면 이 질문에 대한 답변이 생성됩니다",
+                        use_container_width=True
+                    ):
+                        # 버튼이 클릭되면 해당 질문을 자동으로 처리
+                        if st.session_state.vectorstore and openai_api_key:
+                            # 사용자 질문으로 추가
+                            st.session_state.messages.append({"role": "user", "content": question})
+                            
+                            # 답변 생성
+                            with st.spinner("🤖 답변을 생성하고 있습니다..."):
+                                # 임시 컨테이너 생성 (실제로 표시하지 않기 위해)
+                                temp_container = st.empty()
+                                ai_response = get_rag_response_streaming(
+                                    question,
+                                    st.session_state.vectorstore,
+                                    openai_api_key,
+                                    temp_container
+                                )
+                                temp_container.empty()  # 임시 컨테이너 정리
+                            
+                            # AI 응답을 메시지에 추가
+                            st.session_state.messages.append({"role": "assistant", "content": ai_response})
+                            
+                            # 페이지 새로고침으로 채팅 인터페이스 업데이트
+                            st.rerun()
+        
         st.markdown("---")
-        st.markdown("### 💬 질문하기")
-        st.info("📝 위 요약을 참고하여 문서에 대해 자세히 질문해보세요!")
+        st.markdown("### 💬 직접 질문하기")
+        st.info("📝 위 질문들 외에도 문서에 대해 자유롭게 질문해보세요!")
     
     # 기존 메시지 표시
     for message in st.session_state.messages:

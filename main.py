@@ -73,13 +73,13 @@ def add_buy_me_coffee_button():
 # .env 파일 로드
 load_dotenv()
 
-st.set_page_config(page_title="법률가 챗봇", page_icon=":books:", layout="wide")
+st.set_page_config(page_title="Study-Smith 챗봇", page_icon=":books:", layout="wide")
 
 # 버튼 추가 (제목 바로 위)
 add_buy_me_coffee_button()
 
-st.title("📚 법률가 챗봇")
-st.caption("PDF 문서를 업로드하여 법률 관련 질문에 답변받으세요")
+st.title("📚 Study-Smith 챗봇")
+st.caption("PDF 문서를 업로드하여 학습 관련 질문에 답변받으세요")
 
 # OpenAI API 키 로드
 openai_api_key = os.getenv("OPENAI_API_KEY")
@@ -124,7 +124,7 @@ with st.sidebar:
     uploaded_file = st.file_uploader(
         "PDF 파일을 업로드하세요",
         type=["pdf"],
-        help="법률 문서나 관련 자료를 PDF 형태로 업로드하세요"
+        help="학습 관련 문서나 관련 자료를 PDF 형태로 업로드하세요"
     )
     
     st.divider()

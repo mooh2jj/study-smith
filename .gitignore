@@ -13,5 +13,6 @@ share/
 pyvenv.cfg
 
 
-# chroma
-chroma_db
+# chroma_db 이름이 포함한 모든 폴더
+chroma_db*
+

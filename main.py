@@ -70,6 +70,22 @@ def add_buy_me_coffee_button():
         unsafe_allow_html=True
     )
 
+# 카카오 adfit 광고 삽입 함수
+def add_kakao_adfit_ad():
+    """카카오 adfit 광고를 삽입합니다."""
+    st.markdown(
+        """
+        <div style="text-align: center; margin: 20px 0; padding: 10px; background-color: #f8f9fa; border-radius: 8px;">
+            <ins class="kakao_ad_area" style="display:none;"
+                 data-ad-unit="DAN-U0QnTA1Pa2zC3tFl"
+                 data-ad-width="300"
+                 data-ad-height="250"></ins>
+            <script type="text/javascript" src="//t1.daumcdn.net/kas/static/ba.min.js" async></script>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
 # .env 파일 로드
 load_dotenv()
 
@@ -80,6 +96,9 @@ add_buy_me_coffee_button()
 
 st.title("📚 Study-Smith 챗봇")
 st.caption("PDF 문서를 업로드하여 학습 관련 질문에 답변받으세요")
+
+# 메인 페이지 광고 (상단)
+add_kakao_adfit_ad()
 
 # OpenAI API 키 로드
 openai_api_key = os.getenv("OPENAI_API_KEY")
@@ -155,6 +174,11 @@ with st.sidebar:
     if uploaded_file:
         st.success(f"✅ 파일 업로드됨: {uploaded_file.name}")
         st.info(f"📄 파일 크기: {uploaded_file.size / 1024:.1f} KB")
+    
+    # 사이드바 광고
+    st.divider()
+    st.markdown("#### 📢 광고")
+    add_kakao_adfit_ad()
 
 # 크로스 플랫폼 호환 ChromaDB 삭제 함수
 def safe_delete_chromadb_cross_platform(target_dir, max_retries=3, delay=1):
@@ -1105,6 +1129,10 @@ else:
         with st.container():
             st.markdown(st.session_state.document_summary)
         
+        # 문서 요약 후 광고
+        st.markdown("---")
+        add_kakao_adfit_ad()
+        
         # 추천 질문 버튼들 표시
         if st.session_state.recommended_questions:
             st.markdown("---")
@@ -1177,6 +1205,9 @@ else:
                         st.error("❌ 문서가 분석되지 않았거나 API 키가 설정되지 않았습니다.")
         
         st.markdown("---")
+        # 질문 영역 전 광고
+        add_kakao_adfit_ad()
+        
         st.markdown("### 💬 직접 질문하기")
         st.info("📝 위 질문들 외에도 문서에 대해 자유롭게 질문해보세요!")
     

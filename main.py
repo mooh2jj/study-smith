@@ -39,6 +39,7 @@ import gc
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import asyncio
+import streamlit.components.v1 as components
 
 # from streamlit_extras.buy_me_a_coffee import button
 
@@ -89,7 +90,147 @@ def add_kakao_adfit_ad():
 # .env 파일 로드
 load_dotenv()
 
+# SEO 최적화 태그 추가 함수
+def add_seo_tags():
+    """SEO 최적화를 위한 메타 태그들을 추가합니다."""
+    # HTML 헤드에 메타 태그 삽입
+    components.html(
+        """
+        <script>
+        // 메타 태그들을 동적으로 추가
+        function addMetaTag(name, content, property = null) {
+            const meta = document.createElement('meta');
+            if (property) {
+                meta.setAttribute('property', property);
+            } else {
+                meta.setAttribute('name', name);
+            }
+            meta.setAttribute('content', content);
+            document.head.appendChild(meta);
+        }
+        
+        // 기본 메타 태그들 추가
+        addMetaTag('description', 'Study-Smith는 PDF 문서를 업로드하여 AI 챗봇과 대화할 수 있는 학습 도우미입니다. 문서 요약, 핵심 질문 추출, 맞춤형 학습 가이드를 제공합니다.');
+        addMetaTag('keywords', 'AI 챗봇, PDF 분석, 학습 도우미, 문서 요약, 교육 AI, 스터디 스미스, Study-Smith, RAG, 언어모델, 학습 지원');
+        addMetaTag('author', 'Study-Smith');
+        addMetaTag('robots', 'index, follow');
+        addMetaTag('language', 'ko');
+        addMetaTag('revisit-after', '7 days');
+        
+        // Open Graph 태그들
+        addMetaTag('', 'Study-Smith - AI 학습 도우미 챗봇', 'og:title');
+        addMetaTag('', 'PDF 문서를 업로드하여 AI와 대화하며 학습하세요. 문서 요약, 핵심 질문 추출, 맞춤형 학습 가이드를 제공합니다.', 'og:description');
+        addMetaTag('', 'website', 'og:type');
+        addMetaTag('', window.location.href, 'og:url');
+        addMetaTag('', 'https://via.placeholder.com/1200x630/FF6B6B/FFFFFF?text=Study-Smith+AI+학습+도우미', 'og:image');
+        addMetaTag('', 'Study-Smith AI 학습 도우미 로고', 'og:image:alt');
+        addMetaTag('', 'Study-Smith', 'og:site_name');
+        addMetaTag('', 'ko_KR', 'og:locale');
+        
+        // Twitter Card 태그들
+        addMetaTag('twitter:card', 'summary_large_image');
+        addMetaTag('twitter:title', 'Study-Smith - AI 학습 도우미 챗봇');
+        addMetaTag('twitter:description', 'PDF 문서를 업로드하여 AI와 대화하며 학습하세요. 문서 요약, 핵심 질문 추출, 맞춤형 학습 가이드를 제공합니다.');
+        addMetaTag('twitter:image', 'https://via.placeholder.com/1200x630/FF6B6B/FFFFFF?text=Study-Smith+AI+학습+도우미');
+        addMetaTag('twitter:image:alt', 'Study-Smith AI 학습 도우미');
+        
+        // 추가 메타 태그들
+        addMetaTag('theme-color', '#FF6B6B');
+        addMetaTag('application-name', 'Study-Smith');
+        addMetaTag('apple-mobile-web-app-title', 'Study-Smith');
+        addMetaTag('apple-mobile-web-app-capable', 'yes');
+        addMetaTag('apple-mobile-web-app-status-bar-style', 'default');
+        
+        // 캐노니컬 링크 추가
+        const canonical = document.createElement('link');
+        canonical.setAttribute('rel', 'canonical');
+        canonical.setAttribute('href', window.location.href);
+        document.head.appendChild(canonical);
+        
+        // JSON-LD 구조화 데이터 추가
+        const jsonLd = document.createElement('script');
+        jsonLd.type = 'application/ld+json';
+        jsonLd.textContent = JSON.stringify({
+            "@context": "https://schema.org",
+            "@type": "WebApplication",
+            "name": "Study-Smith",
+            "description": "PDF 문서를 업로드하여 AI 챗봇과 대화할 수 있는 학습 도우미 서비스",
+            "url": window.location.href,
+            "applicationCategory": "EducationalApplication",
+            "operatingSystem": "Any",
+            "browserRequirements": "Requires JavaScript",
+            "permissions": "File upload",
+            "offers": {
+                "@type": "Offer",
+                "price": "0",
+                "priceCurrency": "KRW"
+            },
+            "creator": {
+                "@type": "Organization",
+                "name": "Study-Smith"
+            },
+            "featureList": [
+                "PDF 문서 분석",
+                "AI 챗봇 대화", 
+                "문서 자동 요약",
+                "핵심 질문 생성",
+                "맞춤형 학습 가이드"
+            ]
+        });
+        document.head.appendChild(jsonLd);
+        
+        console.log('SEO 메타 태그들이 성공적으로 추가되었습니다.');
+        </script>
+        """,
+        height=0  # 화면에 보이지 않도록 높이를 0으로 설정
+    )
+
 st.set_page_config(page_title="Study-Smith 챗봇", page_icon=":books:", layout="wide")
+
+# SEO 태그 추가
+add_seo_tags()
+
+# SEO 도움 정보 제공 함수
+def add_seo_help_info():
+    """SEO 관련 도움 정보를 제공합니다."""
+    with st.expander("🔍 SEO 및 사이트 정보", expanded=False):
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("""
+            **🗺️ 사이트맵 정보**
+            ```
+            /                  # 메인 페이지
+            /about            # 서비스 소개
+            /help             # 사용법 가이드
+            /privacy          # 개인정보처리방침
+            /terms            # 이용약관
+            ```
+            """)
+            
+        with col2:
+            st.markdown("""
+            **🤖 Robots.txt 권장 설정**
+            ```
+            User-agent: *
+            Allow: /
+            Disallow: /api/
+            Disallow: /_stcore/
+            
+            Sitemap: https://study-smith.streamlit.app/sitemap.xml
+            ```
+            """)
+        
+        st.markdown("""
+        **📊 구조화된 데이터 스키마**
+        - **Application Type**: EducationalApplication
+        - **Category**: 교육/학습 도구
+        - **Features**: PDF 분석, AI 챗봇, 문서 요약, 질문 생성
+        - **Accessibility**: 무료 서비스
+        
+        **🔗 주요 키워드**
+        `AI 챗봇`, `PDF 분석`, `학습 도우미`, `문서 요약`, `교육 AI`, `RAG`, `언어모델`
+        """)
 
 # 버튼 추가 (제목 바로 위)
 add_buy_me_coffee_button()
@@ -1273,3 +1414,6 @@ if uploaded_file:
         })
         with st.expander("전체 대화 내역"):
             st.json(st.session_state.messages)
+    
+    # SEO 도움 정보 추가
+    add_seo_help_info()

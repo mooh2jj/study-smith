@@ -87,6 +87,96 @@ def add_kakao_adfit_ad():
         unsafe_allow_html=True
     )
 
+# 구글 애드센스 광고 삽입 함수
+def add_google_adsense_ad(ad_slot="", ad_format="auto", ad_layout="", full_width_responsive="true"):
+    """구글 애드센스 광고를 삽입합니다."""
+    # ad_slot이 비어있으면 자동 광고 사용
+    if not ad_slot:
+        st.markdown(
+            """
+            <div style="text-align: center; margin: 20px 0; padding: 10px; background-color: #f0f8ff; border-radius: 8px;">
+                <ins class="adsbygoogle"
+                     style="display:block"
+                     data-ad-client="ca-pub-4902408903504205"
+                     data-ad-format="auto"
+                     data-full-width-responsive="true"></ins>
+                <script>
+                     (adsbygoogle = window.adsbygoogle || []).push({});
+                </script>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+    else:
+        # 특정 광고 슬롯 사용
+        st.markdown(
+            f"""
+            <div style="text-align: center; margin: 20px 0; padding: 10px; background-color: #f0f8ff; border-radius: 8px;">
+                <ins class="adsbygoogle"
+                     style="display:block"
+                     data-ad-client="ca-pub-4902408903504205"
+                     data-ad-slot="{ad_slot}"
+                     data-ad-format="{ad_format}"
+                     {"data-ad-layout=" + ad_layout if ad_layout else ""}
+                     data-full-width-responsive="{full_width_responsive}"></ins>
+                <script>
+                     (adsbygoogle = window.adsbygoogle || []).push({{}});
+                </script>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+# 인피드 광고 (추천)
+def add_google_adsense_infeed_ad():
+    """구글 애드센스 인피드 광고를 추가합니다 (콘텐츠 사이에 자연스럽게 배치)"""
+    st.markdown(
+        """
+        <div style="margin: 30px 0; padding: 15px; background-color: #f8f9fa; border: 1px dashed #dee2e6; border-radius: 8px;">
+            <p style="font-size: 12px; color: #6c757d; margin: 0 0 10px 0; text-align: center;">📢 광고</p>
+            <ins class="adsbygoogle"
+                 style="display:block"
+                 data-ad-format="fluid"
+                 data-ad-layout-key="-gw-3+1f-3d+2z"
+                 data-ad-client="ca-pub-4902408903504205"></ins>
+            <script>
+                 (adsbygoogle = window.adsbygoogle || []).push({});
+            </script>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+# 혼합 광고 시스템 함수
+def add_mixed_ads(position="top"):
+    """구글 애드센스와 카카오 Adfit을 번갈아가며 표시"""
+    import random
+    
+    # 랜덤하게 광고 선택 (구글 70%, 카카오 30%)
+    if random.random() < 0.7:
+        if position == "infeed":
+            add_google_adsense_infeed_ad()
+        else:
+            add_google_adsense_ad()
+    else:
+        add_kakao_adfit_ad()
+
+# 광고 배치 최적화 함수
+def add_strategic_ads(page_section="main"):
+    """페이지 섹션에 따라 최적화된 광고 배치"""
+    if page_section == "main":
+        # 메인 페이지 상단: 구글 자동 광고
+        add_google_adsense_ad()
+    elif page_section == "content":
+        # 콘텐츠 중간: 인피드 광고
+        add_google_adsense_infeed_ad()
+    elif page_section == "sidebar":
+        # 사이드바: 카카오 광고 (더 작은 크기)
+        add_kakao_adfit_ad()
+    elif page_section == "bottom":
+        # 페이지 하단: 혼합 광고
+        add_mixed_ads("bottom")
+
 # .env 파일 로드
 load_dotenv()
 
@@ -147,6 +237,13 @@ def add_seo_tags():
         canonical.setAttribute('href', window.location.href);
         document.head.appendChild(canonical);
         
+        // Google AdSense 스크립트 추가
+        const adsenseScript = document.createElement('script');
+        adsenseScript.async = true;
+        adsenseScript.src = 'https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-4902408903504205';
+        adsenseScript.crossOrigin = 'anonymous';
+        document.head.appendChild(adsenseScript);
+        
         // JSON-LD 구조화 데이터 추가
         const jsonLd = document.createElement('script');
         jsonLd.type = 'application/ld+json';
@@ -179,7 +276,7 @@ def add_seo_tags():
         });
         document.head.appendChild(jsonLd);
         
-        console.log('SEO 메타 태그들이 성공적으로 추가되었습니다.');
+        console.log('SEO 메타 태그들과 Google AdSense가 성공적으로 추가되었습니다.');
         </script>
         """,
         height=0  # 화면에 보이지 않도록 높이를 0으로 설정
@@ -230,6 +327,11 @@ def add_seo_help_info():
         
         **🔗 주요 키워드**
         `AI 챗봇`, `PDF 분석`, `학습 도우미`, `문서 요약`, `교육 AI`, `RAG`, `언어모델`
+        
+        **📢 광고 시스템**
+        - **Google AdSense**: 메인 수익 모델 (자동 광고)
+        - **카카오 Adfit**: 한국 사용자 대상 보조 광고
+        - **혼합 배치**: 사용자 경험 최적화를 위한 전략적 배치
         """)
 
 # 버튼 추가 (제목 바로 위)
@@ -238,8 +340,8 @@ add_buy_me_coffee_button()
 st.title("📚 Study-Smith 챗봇")
 st.caption("PDF 문서를 업로드하여 학습 관련 질문에 답변받으세요")
 
-# 메인 페이지 광고 (상단)
-add_kakao_adfit_ad()
+# 메인 페이지 광고 (상단) - 구글 애드센스 우선
+add_strategic_ads("main")
 
 # OpenAI API 키 로드
 openai_api_key = os.getenv("OPENAI_API_KEY")
@@ -319,7 +421,7 @@ with st.sidebar:
     # 사이드바 광고
     st.divider()
     st.markdown("#### 📢 광고")
-    add_kakao_adfit_ad()
+    add_strategic_ads("sidebar")
 
 # 크로스 플랫폼 호환 ChromaDB 삭제 함수
 def safe_delete_chromadb_cross_platform(target_dir, max_retries=3, delay=1):
@@ -1272,7 +1374,7 @@ else:
         
         # 문서 요약 후 광고
         st.markdown("---")
-        add_kakao_adfit_ad()
+        add_strategic_ads("content")
         
         # 추천 질문 버튼들 표시
         if st.session_state.recommended_questions:
@@ -1347,7 +1449,7 @@ else:
         
         st.markdown("---")
         # 질문 영역 전 광고
-        add_kakao_adfit_ad()
+        add_strategic_ads("content")
         
         st.markdown("### 💬 직접 질문하기")
         st.info("📝 위 질문들 외에도 문서에 대해 자유롭게 질문해보세요!")
@@ -1417,3 +1519,48 @@ if uploaded_file:
     
     # SEO 도움 정보 추가
     add_seo_help_info()
+    
+    # 광고 성능 모니터링 (개발자용)
+    if st.checkbox("📊 광고 성능 모니터링 (개발자용)", help="광고 배치 및 성능 정보를 확인합니다"):
+        st.markdown("### 📈 광고 시스템 정보")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("""
+            **🎯 현재 광고 배치**
+            - 메인 상단: Google AdSense (자동)
+            - 콘텐츠 중간: Google AdSense (인피드)
+            - 사이드바: 카카오 Adfit
+            - 질문 영역: Google AdSense (인피드)
+            """)
+            
+        with col2:
+            st.markdown(f"""
+            **⚙️ 광고 설정**
+            - Publisher ID: ca-pub-4902408903504205
+            - 자동 광고: 활성화
+            - 반응형 광고: 활성화
+            - 카카오 광고 비율: 30%
+            - 구글 광고 비율: 70%
+            """)
+        
+        # 광고 테스트 섹션
+        st.markdown("### 🧪 광고 테스트")
+        
+        test_col1, test_col2, test_col3 = st.columns(3)
+        
+        with test_col1:
+            if st.button("구글 애드센스 테스트"):
+                st.write("구글 애드센스 광고 테스트:")
+                add_google_adsense_ad()
+                
+        with test_col2:
+            if st.button("카카오 Adfit 테스트"):
+                st.write("카카오 Adfit 광고 테스트:")
+                add_kakao_adfit_ad()
+                
+        with test_col3:
+            if st.button("인피드 광고 테스트"):
+                st.write("인피드 광고 테스트:")
+                add_google_adsense_infeed_ad()
